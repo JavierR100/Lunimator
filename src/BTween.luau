@@ -4,11 +4,9 @@
 -- Unlike TweenService:Create(), this uses Benchmarking to update the tweening.
 -- Not only that, but allows the usage of tweening to Tables and Userdatas (Instances too)
 -- Even accepting Table as values (assuming they have metatables) for math operations/lerping!
-
--- NOT THE ORIGINAL MODULE, THIS IS MODIFIED SPECIFICALLY FOR LUNIMATOR
+-- Not an original function, modified specifically for Lunanimator
 
 local TwS = game:GetService("TweenService")
-local RS = game:GetService("RunService")
 
 local Creator = {}
 
@@ -16,11 +14,11 @@ export type BTween = {
 	Target:any; -- we're dealing with userdatas/tables here!
 	Playing:boolean;
 	TimePosition:number;
-	TimeLength:number; -- basically the time point returned by os.clock, which helps defining TimePosition.
+	TimeLength:number;
 	TweenInfo:TweenInfo; -- repeatCount and reverses are ignored.
 	Speed:number;
 
-	UseLerpList:{[string]:boolean}; -- Beacuse certain Userdatas don't allow * operations, they sometimes will have the :Lerp() method!
+	UseLerpList:{[string]:boolean}; -- Certain userdatas don't allow * operations, but sometimes will have a :Lerp() method.
 	InitValues:{[string]:any};
 	EndValues:{[string]:any};
 	DiffValues:{[string]:any};
@@ -37,6 +35,7 @@ export type BTween = {
 -- HELPER FUNCTIONS
 
 local function get(t:any,i:any) return t[i] end
+local function testMath(x: any) return x*1, x+x, x-x end
 
 -- FUNCTIONS
 
@@ -44,9 +43,9 @@ local function get(t:any,i:any) return t[i] end
 local function Class_Update(self:BTween, dt:number)
 	if not self.Playing then return end
 
-	local timeElapsed = self.TimePosition + dt --(os.clock() - self.ClockStart) * self.Speed
+	local timeElapsed = self.TimePosition + dt
 	local alpha = timeElapsed/self.TweenInfo.Time
-	if alpha ~= alpha then -- nan detection
+	if alpha ~= alpha then -- is NaN?
 		alpha = 1
 	end
 	local tweenedAlpha = TwS:GetValue(alpha,self.TweenInfo.EasingStyle,self.TweenInfo.EasingDirection)
@@ -57,14 +56,12 @@ local function Class_Update(self:BTween, dt:number)
 			self.Target[property] = self.EndValues[property]
 		end
 		if self.OnComplete then
-			self.OnComplete(self)
+			xpcall(self.OnComplete,warn,self)
 		end
-		-- stop playing once it reached the final, while setting the value to the end too..
 	elseif alpha < 0 then
 		for property,mustLerp in next,self.UseLerpList do
 			self.Target[property] = self.InitValues[property]
 		end
-		-- just set the property as the initial value, just to accept delaying.
 	else
 		for property,mustLerp in next,self.UseLerpList do
 			if mustLerp then
@@ -78,24 +75,22 @@ local function Class_Update(self:BTween, dt:number)
 end
 
 -- Starts the tweening.
--- <strong>time</strong>: Time position to start from.
--- <strong>ignoreDelay</strong>: Whenever it shouldn't consider DelayTime as part of the tween.
+-- <strong>time</strong>: Time position to start from, defaults to 0.
+-- <strong>ignoreDelay</strong>: Skips the DelayTime from the Tween.
 local function Class_Play(self:BTween,time:number?,ignoreDelay:boolean?)
 	local actualTime = time or 0
 	assert(actualTime <= self.TweenInfo.DelayTime + self.TweenInfo.Time,"Time is out of bounds")
 
 	self.Playing = true
 	if ignoreDelay then
-		--self.ClockStart = os.clock() - actualTime
 		self.TimePosition = actualTime
 	else
-		--self.ClockStart = os.clock() + self.TweenInfo.DelayTime - actualTime
 		self.TimePosition = actualTime - self.TweenInfo.DelayTime
 	end
 	self:Update(0)
 end
 
--- Update the variables in order to reflect the new property values.
+-- Updates internal variables with the current instance properties
 local function Class_Recalculate(self:BTween)
 	for name,origValue in next,self.InitValues do
 		local newValue:any? = select(2,pcall(get,self.Target,name))
@@ -110,7 +105,7 @@ local function Class_Recalculate(self:BTween)
 	end
 end
 
--- Update the variables with what's given already to the BetterTween.
+-- Updates internal variables with the current BTween.InitValues
 local function Class_RecalculateValues(self:BTween)
 	for name,origValue in next,self.InitValues do
 		local newValue:any? = origValue
@@ -126,7 +121,7 @@ local function Class_RecalculateValues(self:BTween)
 end
 
 -- Stops the Tween.
--- <strong>reset</strong>: Resets the tween variables to the original state if true.
+-- <strong>reset</strong>: Reverts the tween variables to their original state if set to true.
 local function Class_Cancel(self:BTween,reset:boolean?)
 	if not self.Playing then return end
 	self.Playing = false
@@ -141,8 +136,9 @@ end
 
 -- Updates an array of BetterTweens.
 -- <strong>array</strong>: Array of BetterTween instances.
--- <strong>noRemoval</strong>: Prevent removing items from the array if they aren't playing if true.
-function Creator.ManualUpdate(array:{BTween}, dt:number,noRemoval:boolean?) -- Lazy? Idk but i think it's performant this way..
+-- <strong>noRemoval</strong>: Disallows removing items from the array when BTweens aren't playing.
+function Creator.ManualUpdate(array:{BTween}, dt:number,noRemoval:boolean?) 
+	-- Lazy? Idk but i think it's performant this way..
 	local i = 1
 	while array[i] do 
 		local tween = array[i]
@@ -165,7 +161,6 @@ function Creator.Create(target:any,TweenInfo:TweenInfo,values:{[string]:any}): B
 	local starterValues,endValues,diffValues = {},{},{}
 	local useLerpList = {}
 	for name,value in next,values do
-		-- is the value itself the same?
 		local currValue:any? = select(2,pcall(get,target,name))
 		if currValue == nil then
 			warn(`{name} cannot be tweened, got nil`)
@@ -177,13 +172,10 @@ function Creator.Create(target:any,TweenInfo:TweenInfo,values:{[string]:any}): B
 		end
 		assert(sameType)
 
-		-- check if the value is supported for math operations or lerping
 		local hasLerp = pcall(get,value,"Lerp")
-		local canBeMul = pcall(function() return value*1 end)
-		local canBeSub = pcall(function() return value-value end)
-		local canBeAdd = pcall(function() return value+value end)
+		local hasMath = pcall(testMath,value)
 
-		if hasLerp or (canBeMul and canBeAdd and canBeSub) then
+		if hasLerp or hasMath then
 			useLerpList[name] = hasLerp
 			starterValues[name] = currValue
 			endValues[name] = value

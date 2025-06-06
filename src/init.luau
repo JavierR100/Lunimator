@@ -1,17 +1,15 @@
 --!strict
 
 --[[
-
------------------
--- Lunimator --
------------------
-
-Roblox Animator instance re-implementation.
-By JavierR100
+	
+	---------------
+	-- Lunimator --
+	---------------
+	
+	Roblox Animator instance re-implementation.
+	By JavierR100
 
 --]]
-
--- TODO: Once done, publish somewhere in github and use Unlicence licence :D
 
 local Luanimator = {}
 
@@ -42,21 +40,21 @@ export type LuaTrack = {
 	TimePosition: number;
 	Priority: |Enum.AnimationPriority;
 	Loop: boolean;
-	
-	FadeEndingTime: number; -- (+) fadeTime applied when the animation finishes
-	
+
+	FadeEndingTime: number; -- (+) fadeTime applied when the animation is done playing
+
 	Play:(self:LuaTrack,fadeTime:number?,weight:number?,speed:number?)->();
 	Stop:(self:LuaTrack,fadeTime:number?)->();
 	AdjustWeight:(self:LuaTrack, new:number?, time:number?)->();
 	AdjustSpeed:(self:LuaTrack, new:number?)->(); -- pro tip: writing .Speed directly also works!
 	GetMarkerReachedSignal:(self:LuaTrack,name:string)->RBXScriptSignal;
-	
+
 	-- PROTECTED 
 	CurrentWeight: number;
 	TargetWeight: number;
 	TimeLength: number;
 	Playing: boolean;
-	
+
 	-- PRIVATE
 	Data: any;
 	PoseIndexes: {[Motor6D] : number};
@@ -64,11 +62,11 @@ export type LuaTrack = {
 	Marks: {KeyframeMark};
 	MarkerReachedSignals: {[string] : BindableEvent};
 	MarkIndex: number;
-	
+
 	FiredLastMarker: boolean;
 	WeightTween: BTween.BTween;
 	FadeLength: number;
-	
+
 	-- EVENTS
 
 	Stopped:RBXScriptSignal; -->()
@@ -274,7 +272,7 @@ end
 --                              --
 
 --[[
-	Updates the humanoid joints and other variables.
+	Updates the humanoid joints and internal variables.
 	<strong>self</strong>: The Luanimator to update.
 	<strong>delta</strong>: Elapsed time.
 ]]--
@@ -300,37 +298,37 @@ local function luanimator_Update(self:Luanimator, delta:number)
 				track.TimePosition %= track.TimeLength
 			end
 		end
-		
+
 		--
 		if #track.Marks > 0 then -- iterate thru marks, if there's 1 or more
 			local stepSign = math.sign(step)
 			local markIndex = track.MarkIndex
-			
+
 			local nextMark = track.Marks[markIndex]
-			
+
 			local mustUpdateMarkers = if track.Loop then true else not track.FiredLastMarker
 			if stepSign < 0 then
-				
+
 				mustUpdateMarkers = mustUpdateMarkers and nextMark.Time > track.TimePosition 
 			else
 				mustUpdateMarkers = mustUpdateMarkers and track.TimePosition > nextMark.Time
 			end
-			
-			
+
+
 			if mustUpdateMarkers then
 				if stepSign == 0 then
 					stepSign = 1
 				end
-				
+
 				repeat
-					
+
 					local deltaTime
 					if track.Loop then
 						deltaTime = (nextMark.Time - lastTimePos)%track.TimeLength * stepSign
 					else
 						deltaTime = (nextMark.Time - lastTimePos) * stepSign
 					end
-					
+
 					if deltaTime > math.abs(step) then
 						track.MarkIndex = markIndex
 						break
@@ -338,7 +336,7 @@ local function luanimator_Update(self:Luanimator, delta:number)
 					elseif deltaTime < 0 then
 						-- do not fire at all
 						track.FiredLastMarker = (not track.Loop) and (step < 0 and markIndex == 1 or markIndex == #track.Marks)
-						
+
 					elseif math.abs(step) > deltaTime then
 						if nextMark.Value then
 							local signal = track.MarkerReachedSignals[nextMark.Name]
@@ -348,24 +346,24 @@ local function luanimator_Update(self:Luanimator, delta:number)
 						else
 							track._Events.KeyframeReached:Fire(nextMark.Name)
 						end
-						
+
 						track.FiredLastMarker = (not track.Loop) and (step < 0 and markIndex == 1 or markIndex == #track.Marks)
 					end
-					
+
 
 					if track.Loop then
 						markIndex = getNextIndex1Based(markIndex,#track.Marks,stepSign)
 					else
 						markIndex += stepSign
 					end
-					
+
 					nextMark = track.Marks[markIndex]
-					
+
 				until not nextMark
 			end
 			-- this was an absolute nightmare to get working, i wouldn't be surprised if there are unchecked bugs here...
 		end
-		
+
 		-- then iterate thru every KeyPose to determine the CFrame transform
 		for motor, keyposeList in next,track.PoseLists do
 			local priority = track.Priority.Value
@@ -374,8 +372,8 @@ local function luanimator_Update(self:Luanimator, delta:number)
 			else
 				priority += 1
 			end
-			
-			
+
+
 			local nowIndex = track.PoseIndexes[motor] or 1
 			local step = math.sign(step)
 
@@ -383,7 +381,7 @@ local function luanimator_Update(self:Luanimator, delta:number)
 
 			local currKeyPose = keyposeList[nowIndex] 
 			local nextKeyPose : KeyPose? = keyposeList[nowIndex+1]
-			
+
 			-- find the new nowIndex if TimePosition is out of range between the 2 KeyPose's times
 			if
 				(nextKeyPose and track.TimePosition > nextKeyPose.Time)
@@ -392,7 +390,7 @@ local function luanimator_Update(self:Luanimator, delta:number)
 				if step == 0 or (step > 0 and track.TimePosition < currKeyPose.Time) or (step < 0 and track.TimePosition > currKeyPose.Time) then
 					step = getSignByDistance(track.TimePosition,currKeyPose.Time,track.TimeLength)
 				end
-				
+
 				repeat
 					-- go to next index step
 					if track.Loop then
@@ -403,19 +401,19 @@ local function luanimator_Update(self:Luanimator, delta:number)
 
 					currKeyPose = keyposeList[nowIndex]
 					nextKeyPose = keyposeList[nowIndex+1]
-					
+
 					if 
 						nextKeyPose and currKeyPose
 						and track.TimePosition <= nextKeyPose.Time and track.TimePosition >= currKeyPose.Time
 					then
 						-- TimePosition is currently between 2 keyposes, stop looping
 						break
-						
+
 					end
 				until not (currKeyPose and nextKeyPose) -- one keypose is not available, intended for non-looped animations
 				track.PoseIndexes[motor] = nowIndex
 			end
-			
+
 			-- calculate the Transform CFrame
 			if nextKeyPose and currKeyPose then
 				-- both keys exist, so just interpolate them both
@@ -469,7 +467,7 @@ local function luanimator_Update(self:Luanimator, delta:number)
 				local singleKeyPose = nextKeyPose or currKeyPose
 				blendCFrame = singleKeyPose.CFrame
 			end
-			
+
 			-- then assign the resulting CFrame into the priority CFrame list
 			local indexedPriorityList = prioritylist[motor]
 			if indexedPriorityList == nil then
@@ -489,9 +487,9 @@ local function luanimator_Update(self:Luanimator, delta:number)
 				}
 				indexedPriorityList[priority] = wc
 			end
-			
+
 		end
-		
+
 		if track.Playing and (track.TimePosition > track.TimeLength or track.TimePosition < 0) then
 			-- animation has ended
 			local overTime = 0
@@ -520,7 +518,7 @@ local function luanimator_Update(self:Luanimator, delta:number)
 		track.WeightTween:Update(delta)
 		i += 1
 	end
-	
+
 	for motor, wcl in next,prioritylist do
 		local trueFinal = CFrame.identity
 		local avg
@@ -536,7 +534,7 @@ local function luanimator_Update(self:Luanimator, delta:number)
 			else
 				trueFinal = trueFinal:Lerp(wc.Final,math.clamp(avg,0,1))
 			end
-			
+
 		end
 		-- result offset: C0 * C1:Inverse() * Transform
 		motor.C0 = self.MotorC0[motor] * trueFinal
@@ -546,7 +544,7 @@ end
 --[[
 	Loads an animation, returns a LuaTrack instance.
 	<strong>self</strong>: The Luanimator to load.
-	<strong>data</strong>: Parsed animation data to load.
+	<strong>data</strong>: Parsed animation table data to load.
 ]]--
 local function luanimator_LoadAnimation(self:Luanimator, data: KeySeqData) : LuaTrack
 	local stoppedSignal = Instance.new("BindableEvent")
@@ -561,21 +559,21 @@ local function luanimator_LoadAnimation(self:Luanimator, data: KeySeqData) : Lua
 		TimePosition = 0;
 		TimeLength = 0;
 		Loop = data.Loop;
-		
+
 		CurrentWeight = 0;
 		TargetWeight = 0;
 		WeightTween = BTween.Create(string,TweenInfo.new(),{});
 		MarkIndex = 1;
 		FiredLastMarker = false;
-		
+
 		FadeEndingTime = 0.100000001;
-		
+
 		MarkerReachedSignals = setmetatable({},{__mode = "v"}) :: any;
 		Marks = {};
 		PoseIndexes = {};
 		Priority = data.Priority;
 		Play = function(this,fadeTime,weight,speed)
-				
+
 			if this.Playing then
 				return
 			end
@@ -583,7 +581,7 @@ local function luanimator_LoadAnimation(self:Luanimator, data: KeySeqData) : Lua
 			if not table.find(self.PlayingTracks,this) then
 				table.insert(self.PlayingTracks,this)
 			end
-			
+
 			this.TimePosition = 0
 			for motor,index in next, this.PoseIndexes do
 				this.PoseIndexes[motor] = 1
@@ -593,7 +591,7 @@ local function luanimator_LoadAnimation(self:Luanimator, data: KeySeqData) : Lua
 			this.FadeLength = fadeTime or 0.100000001
 			this.Playing = true
 			this.FiredLastMarker = false
-			
+
 			this.TargetWeight = weight or 1
 			if this.WeightTween.Playing then
 				this.WeightTween:Cancel()
@@ -643,7 +641,7 @@ local function luanimator_LoadAnimation(self:Luanimator, data: KeySeqData) : Lua
 				table.insert(track.Marks,mark)
 			end
 		end
-		
+
 		if Keyframe.Name ~= "Keyframe" then
 			local mark:KeyframeMark = {
 				Name = Keyframe.Name;
@@ -671,8 +669,10 @@ end
 -- Sets up a Luanimator instance.
 -- <strong>character</strong>: A humanoid character model.
 function Luanimator.new(character:Model): Luanimator
-	assert(character:FindFirstChild("Humanoid"),"Missing humanoid")
-	
+	local hum = character:FindFirstChildOfClass("Humanoid") 
+	assert(hum,"Missing humanoid")
+	assert(hum.RootPart,"Missing HumanoidRootPart")
+
 	local this: Luanimator = {
 		LoadedTracks = {};
 		Motors = {};
@@ -691,13 +691,13 @@ function Luanimator.new(character:Model): Luanimator
 			this.MotorC1[v] = v.C1
 		end
 	end
-	
+
 	return this
 end
 
--- PARSER REGION --
--- Really useful if you're loading from external sources
+-- PARSER --
 
+-- Recursively parses Pose data
 function parseKeyframeSeqPose(pose: Pose)
 	local subList = {}
 	local data = {
@@ -720,6 +720,7 @@ function parseKeyframeSeqPose(pose: Pose)
 	return data
 end
 
+-- Parses a KeyframeSequence container into a Lua table
 function Luanimator.parseKeyframeSequence(seq: KeyframeSequence): KeySeqData
 	local output: KeySeqData = {
 		Name = seq.Name;
@@ -754,7 +755,7 @@ function Luanimator.parseKeyframeSequence(seq: KeyframeSequence): KeySeqData
 			end
 		end
 	end
-	
+
 	return output
 end
 
